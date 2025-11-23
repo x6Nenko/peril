@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
+	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -12,6 +13,14 @@ type SimpleQueueType int
 const (
 	Durable SimpleQueueType = iota
 	Transient
+)
+
+type AckType int
+
+const (
+	Ack AckType = iota
+	NackRequeue
+	NackDiscard
 )
 
 func DeclareAndBind(
@@ -32,14 +41,16 @@ func DeclareAndBind(
 	autoDelete := queueType == Transient
 	exclusive := queueType == Transient
 
-	// Declare the queue
+	// Declare the queue with dead letter exchange configuration
 	queue, err := ch.QueueDeclare(
 		queueName,
 		durable,
 		autoDelete,
 		exclusive,
 		false, // noWait
-		nil,   // args
+		amqp.Table{
+			"x-dead-letter-exchange": "peril_dlx",
+		},
 	)
 	if err != nil {
 		return nil, amqp.Queue{}, err
@@ -92,7 +103,7 @@ func SubscribeJSON[T any](
 	queueName,
 	key string,
 	queueType SimpleQueueType,
-	handler func(T),
+	handler func(T) AckType,
 ) error {
 	// Call DeclareAndBind to ensure the queue exists and is bound to the exchange
 	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
@@ -125,10 +136,20 @@ func SubscribeJSON[T any](
 			}
 
 			// Call the handler function with the unmarshaled message
-			handler(msg)
+			ackType := handler(msg)
 
-			// Acknowledge the message to remove it from the queue
-			delivery.Ack(false)
+			// Handle acknowledgment based on the returned AckType
+			switch ackType {
+			case Ack:
+				log.Println("Acknowledging message")
+				delivery.Ack(false)
+			case NackRequeue:
+				log.Println("Nacking message with requeue")
+				delivery.Nack(false, true)
+			case NackDiscard:
+				log.Println("Nacking message without requeue (discard)")
+				delivery.Nack(false, false)
+			}
 		}
 	}()
 
