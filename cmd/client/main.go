@@ -60,9 +60,9 @@ func handlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
 			err := pubsub.PublishJSON(publishCh, routing.ExchangePerilTopic, warKey, rw)
 			if err != nil {
 				fmt.Printf("error: failed to publish war: %v\n", err)
-				return pubsub.NackDiscard
+				return pubsub.NackRequeue
 			}
-			return pubsub.NackRequeue
+			return pubsub.Ack
 		case gamelogic.MoveOutcomeSamePlayer:
 			return pubsub.NackDiscard
 		default:
