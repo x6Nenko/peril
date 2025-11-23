@@ -28,16 +28,25 @@ func main() {
 	}
 	defer ch.Close()
 
-	// Declare and bind game_logs queue
-	_, _, err = pubsub.DeclareAndBind(
+	// Subscribe to game_logs queue
+	err = pubsub.SubscribeGob(
 		conn,
 		routing.ExchangePerilTopic,
 		routing.GameLogSlug,
-		routing.GameLogSlug+".*",
+		routing.GameLogSlug+".#",
 		pubsub.Durable,
+		func(gamelog routing.GameLog) pubsub.AckType {
+			defer fmt.Print("> ")
+			err := gamelogic.WriteLog(gamelog)
+			if err != nil {
+				log.Printf("could not write log: %v", err)
+				return pubsub.NackDiscard
+			}
+			return pubsub.Ack
+		},
 	)
 	if err != nil {
-		log.Fatalf("could not declare and bind game_logs queue: %v", err)
+		log.Fatalf("could not subscribe to game_logs queue: %v", err)
 	}
 
 	// Print server help

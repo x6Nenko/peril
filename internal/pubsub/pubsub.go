@@ -127,16 +127,17 @@ func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	return nil
 }
 
-func SubscribeJSON[T any](
+func subscribe[T any](
 	conn *amqp.Connection,
 	exchange,
 	queueName,
 	key string,
-	queueType SimpleQueueType,
+	simpleQueueType SimpleQueueType,
 	handler func(T) AckType,
+	unmarshaller func([]byte) (T, error),
 ) error {
 	// Call DeclareAndBind to ensure the queue exists and is bound to the exchange
-	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
 		return err
 	}
@@ -158,9 +159,8 @@ func SubscribeJSON[T any](
 	// Start a goroutine to process messages
 	go func() {
 		for delivery := range deliveries {
-			var msg T
 			// Unmarshal the message body into type T
-			err := json.Unmarshal(delivery.Body, &msg)
+			msg, err := unmarshaller(delivery.Body)
 			if err != nil {
 				continue
 			}
@@ -184,4 +184,38 @@ func SubscribeJSON[T any](
 	}()
 
 	return nil
+}
+
+func SubscribeJSON[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T) AckType,
+) error {
+	unmarshaller := func(data []byte) (T, error) {
+		var msg T
+		err := json.Unmarshal(data, &msg)
+		return msg, err
+	}
+	return subscribe(conn, exchange, queueName, key, queueType, handler, unmarshaller)
+}
+
+func SubscribeGob[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T) AckType,
+) error {
+	unmarshaller := func(data []byte) (T, error) {
+		var msg T
+		buffer := bytes.NewBuffer(data)
+		decoder := gob.NewDecoder(buffer)
+		err := decoder.Decode(&msg)
+		return msg, err
+	}
+	return subscribe(conn, exchange, queueName, key, queueType, handler, unmarshaller)
 }
