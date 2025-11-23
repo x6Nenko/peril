@@ -28,6 +28,18 @@ func main() {
 	}
 	defer ch.Close()
 
+	// Declare and bind game_logs queue
+	_, _, err = pubsub.DeclareAndBind(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.Durable,
+	)
+	if err != nil {
+		log.Fatalf("could not declare and bind game_logs queue: %v", err)
+	}
+
 	// Print server help
 	gamelogic.PrintServerHelp()
 
