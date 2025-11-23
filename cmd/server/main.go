@@ -3,9 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
+	"github.com/x6Nenko/peril/internal/gamelogic"
 	"github.com/x6Nenko/peril/internal/pubsub"
 	"github.com/x6Nenko/peril/internal/routing"
 
@@ -29,21 +28,44 @@ func main() {
 	}
 	defer ch.Close()
 
-	// Publish a pause message
-	err = pubsub.PublishJSON(
-		ch,
-		routing.ExchangePerilDirect,
-		routing.PauseKey,
-		routing.PlayingState{IsPaused: true},
-	)
-	if err != nil {
-		log.Fatalf("could not publish pause message: %v", err)
-	}
-	fmt.Println("Pause message published!")
+	// Print server help
+	gamelogic.PrintServerHelp()
 
-	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
-	fmt.Println("RabbitMQ connection closed.")
+	// Start infinite loop for REPL
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+
+		switch words[0] {
+		case "pause":
+			fmt.Println("Sending pause message...")
+			err = pubsub.PublishJSON(
+				ch,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				routing.PlayingState{IsPaused: true},
+			)
+			if err != nil {
+				log.Printf("could not publish pause message: %v", err)
+			}
+		case "resume":
+			fmt.Println("Sending resume message...")
+			err = pubsub.PublishJSON(
+				ch,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				routing.PlayingState{IsPaused: false},
+			)
+			if err != nil {
+				log.Printf("could not publish resume message: %v", err)
+			}
+		case "quit":
+			fmt.Println("Exiting...")
+			return
+		default:
+			fmt.Println("Unknown command")
+		}
+	}
 }
