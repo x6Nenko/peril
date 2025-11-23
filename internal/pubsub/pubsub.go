@@ -142,6 +142,16 @@ func subscribe[T any](
 		return err
 	}
 
+	// Set QoS to limit prefetch count to 10
+	err = ch.Qos(
+		10,    // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	if err != nil {
+		return err
+	}
+
 	// Get a channel of deliveries from the queue
 	deliveries, err := ch.Consume(
 		queueName,
