@@ -85,3 +85,52 @@ func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 
 	return nil
 }
+
+func SubscribeJSON[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T),
+) error {
+	// Call DeclareAndBind to ensure the queue exists and is bound to the exchange
+	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		return err
+	}
+
+	// Get a channel of deliveries from the queue
+	deliveries, err := ch.Consume(
+		queueName,
+		"",    // consumer name (auto-generated)
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return err
+	}
+
+	// Start a goroutine to process messages
+	go func() {
+		for delivery := range deliveries {
+			var msg T
+			// Unmarshal the message body into type T
+			err := json.Unmarshal(delivery.Body, &msg)
+			if err != nil {
+				continue
+			}
+
+			// Call the handler function with the unmarshaled message
+			handler(msg)
+
+			// Acknowledge the message to remove it from the queue
+			delivery.Ack(false)
+		}
+	}()
+
+	return nil
+}
