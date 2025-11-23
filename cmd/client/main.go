@@ -18,6 +18,13 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
 	}
 }
 
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
+	return func(move gamelogic.ArmyMove) {
+		defer fmt.Print("> ")
+		gs.HandleMove(move)
+	}
+}
+
 func main() {
 	fmt.Println("Starting Peril client...")
 
@@ -37,6 +44,12 @@ func main() {
 
 	gs := gamelogic.NewGameState(username)
 
+	publishCh, err := conn.Channel()
+	if err != nil {
+		log.Fatalf("could not create publish channel: %v", err)
+	}
+	defer publishCh.Close()
+
 	queueName := fmt.Sprintf("%s.%s", routing.PauseKey, username)
 	err = pubsub.SubscribeJSON(
 		conn,
@@ -50,6 +63,21 @@ func main() {
 		log.Fatalf("could not subscribe to pause messages: %v", err)
 	}
 
+	// Subscribe to army moves from other players
+	armyMovesQueue := fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username)
+	armyMovesKey := fmt.Sprintf("%s.*", routing.ArmyMovesPrefix)
+	err = pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilTopic,
+		armyMovesQueue,
+		armyMovesKey,
+		pubsub.Transient,
+		handlerMove(gs),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to army moves: %v", err)
+	}
+
 	for {
 		words := gamelogic.GetInput()
 		if len(words) == 0 {
@@ -57,13 +85,20 @@ func main() {
 		}
 		switch words[0] {
 		case "move":
-			_, err := gs.CommandMove(words)
+			move, err := gs.CommandMove(words)
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 
-			// TODO: publish the move
+			// Publish the move to army_moves.username routing key
+			moveKey := fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username)
+			err = pubsub.PublishJSON(publishCh, routing.ExchangePerilTopic, moveKey, move)
+			if err != nil {
+				fmt.Printf("error: failed to publish move: %v\n", err)
+				continue
+			}
+			fmt.Printf("Move published successfully to %s\n", moveKey)
 		case "spawn":
 			err = gs.CommandSpawn(words)
 			if err != nil {
